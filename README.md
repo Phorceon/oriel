@@ -12,7 +12,13 @@ and show only the glued app window.
 
 ## Install
 
-Apple Silicon, macOS 13 or later. This repository is also the Homebrew tap. Because the
+Apple Silicon, macOS 13 or later. The public tap, which works for everyone:
+
+```
+brew install --cask phorceon/tap/oriel
+```
+
+This repository itself is also a Homebrew tap for the owner. Because the
 repository is named `oriel` and not `homebrew-oriel`, the tap needs its URL:
 
 ```
@@ -110,11 +116,19 @@ security delete-identity -c "Oriel Local Signing" ~/Library/Keychains/login.keyc
 ## Releasing
 
 `scripts/release` builds a path-scrubbed, signed bundle and zips it as `dist/Oriel-<version>.zip`.
-It then rewrites the tracked file `Casks/oriel.rb` in place from `packaging/homebrew/oriel.rb.in`.
+It then rewrites both tracked casks in place from `packaging/homebrew/oriel.rb.in`:
+`Casks/oriel.rb` (this repository as a private tap) and `homebrew-tap/Casks/oriel.rb`
+(the copy the public tap serves).
 The version comes from `[workspace.package]` in the root `Cargo.toml`. It needs the
-`Oriel Local Signing` identity. At the end it prints the commands to publish: commit and push
-`Casks/oriel.rb`, then `gh release create v<version>` on `Phorceon/oriel` with the zip. The
+`Oriel Local Signing` identity. At the end it prints the commands to publish. The
 script never publishes by itself.
+
+The tap lives in this repository too: `homebrew-tap/` is the source of truth for the
+public tap. A tap must be a standalone repository named `homebrew-*`, and this
+repository is private, so `scripts/publish-tap` pushes that directory to the public
+mirror `Phorceon/homebrew-tap`. Publishing a release means: commit and push both
+casks here, create the release on this repo, run `scripts/publish-tap`, and create
+the same release on the public tap.
 
 ## Workspace layout
 

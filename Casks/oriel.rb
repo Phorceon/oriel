@@ -4,7 +4,7 @@ cask "oriel" do
 
   url "https://github.com/Phorceon/oriel/releases/download/v#{version}/Oriel-#{version}.zip"
   name "Oriel"
-  desc "Tab bar for real desktop app windows"
+  desc "Chrome-style tabs for real desktop app windows"
   homepage "https://github.com/Phorceon/oriel"
 
   depends_on arch: :arm64

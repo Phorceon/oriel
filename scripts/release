@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     echo "usage: $0" >&2
-    echo "Builds a signed, path-scrubbed release zip in dist/ and updates Casks/oriel.rb." >&2
+    echo "Builds a signed, path-scrubbed release zip in dist/ and rewrites both casks: Casks/oriel.rb (this repo as a private tap) and homebrew-tap/Casks/oriel.rb (the public tap)." >&2
     echo "It does not publish anything: no network, no gh, no git push." >&2
     exit 2
 }
@@ -14,8 +14,6 @@ fail() { echo "release: error: $*" >&2; exit 1; }
 # Work from the repo root regardless of the current directory.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
-
-repo_slug="Phorceon/oriel"
 identity="Oriel Local Signing"
 
 # Version: the single source of truth is [workspace.package] in the root Cargo.toml
@@ -122,23 +120,39 @@ size="$(stat -f %z "$zip")"
 echo "Zip: $repo/$zip ($size bytes)"
 echo "SHA-256: $sha"
 
-# Cask: Casks/oriel.rb is tracked in this repo (it makes the repo a Homebrew tap).
-# It is generated from the template and replaced in place.
+# Casks: both casks are generated from the one template and replaced in place.
+# - Casks/oriel.rb               This repo acts as a private Homebrew tap for the
+#                                owner; its release lives on Phorceon/oriel.
+# - homebrew-tap/Casks/oriel.rb  The public tap serves the same zip to everyone,
+#                                because this repository is private. Publishing
+#                                across is scripts/publish-tap's job.
 cask="Casks/oriel.rb"
-mkdir -p Casks
+tap_cask="homebrew-tap/Casks/oriel.rb"
+mkdir -p Casks homebrew-tap/Casks
 sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" -e "s/@MACOS_SYMBOL@/$macos_symbol/g" \
     packaging/homebrew/oriel.rb.in > "$cask"
 if grep -q '@[A-Z_]*@' "$cask"; then
     fail "unfilled placeholder in the cask"
 fi
+# The public tap cannot read this private repository, so its cask points at the
+# release that lives on the public tap repo.
+sed -e 's#Phorceon/oriel/releases/download/v#Phorceon/homebrew-tap/releases/download/oriel-v#' \
+    -e 's#homepage "https://github.com/Phorceon/oriel"#homepage "https://github.com/Phorceon/homebrew-tap"#' \
+    "$cask" > "$tap_cask"
+if cmp -s "$cask" "$tap_cask"; then
+    fail "the tap cask did not diverge; the URL rewrite did not apply"
+fi
 
 echo
-echo "Cask: $repo/$cask"
+echo "Casks: $repo/$cask and $repo/$tap_cask"
 cat <<PUBLISH
 
 To publish (run these yourself; this script does not):
 
-  git add Casks/oriel.rb && git commit -m "oriel $version" && git push
+  git add Casks/oriel.rb homebrew-tap && git commit -m "oriel $version" && git push
   gh release create v$version "$repo/$zip" \\
-      --repo $repo_slug --title "Oriel $version" --notes "Oriel $version"
+      --repo Phorceon/oriel --title "Oriel $version" --notes "Oriel $version"
+  scripts/publish-tap
+  gh release create oriel-v$version "$repo/$zip" \\
+      --repo Phorceon/homebrew-tap --title "Oriel $version" --notes "Oriel $version"
 PUBLISH

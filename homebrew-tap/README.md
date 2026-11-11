@@ -2,6 +2,10 @@
 
 Homebrew tap for Oriel, a macOS app that brings Chrome-style tabs to real desktop apps.
 
+This repository is a mirror. Its source of truth is `homebrew-tap/` in
+<https://github.com/Phorceon/oriel>; changes there are pushed over with
+`scripts/publish-tap`.
+
 ## Install
 
 ```

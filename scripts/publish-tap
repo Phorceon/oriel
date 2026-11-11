@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pushes homebrew-tap/ to the public repository Phorceon/homebrew-tap, the
+# repository Homebrew clones for `brew install --cask phorceon/tap/oriel`.
+#
+# Why a separate repository at all: this repository is private, so nobody else
+# can read it, and a Homebrew tap must be a standalone repository. This
+# directory here is the single source of truth; the public repo is a mirror.
+# Run scripts/release first, so the casks carry the fresh version and sha256.
+
+fail() { echo "publish-tap: error: $*" >&2; exit 1; }
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo"
+
+tap_url="https://github.com/Phorceon/homebrew-tap.git"
+
+[ -f homebrew-tap/Casks/oriel.rb ] || fail "homebrew-tap/Casks/oriel.rb is missing"
+if ! git diff --quiet -- homebrew-tap; then
+    fail "homebrew-tap/ has uncommitted changes; commit them first"
+fi
+
+git subtree push --prefix=homebrew-tap "$tap_url" main
+echo "publish-tap: homebrew-tap/ pushed to Phorceon/homebrew-tap."
