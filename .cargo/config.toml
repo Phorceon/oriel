@@ -1,0 +1,4 @@
+# This Mac's Command Line Tools carry a leftover MacOSX27.0 SDK that their own linker cannot
+# read, and `xcrun` selects it. Pin the SDK that matches the installed tools.
+[env]
+SDKROOT = "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"

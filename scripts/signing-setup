@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Create a local self-signed code signing identity "Oriel Local Signing" in the
+# login keychain. Safe to run more than once.
+set -euo pipefail
+
+name="Oriel Local Signing"
+keychain="$HOME/Library/Keychains/login.keychain-db"
+
+if security find-certificate -c "$name" "$keychain" >/dev/null 2>&1; then
+    echo "Identity '$name' already exists in the login keychain. Nothing to do."
+    exit 0
+fi
+
+umask 077
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+pass="$(/usr/bin/openssl rand -hex 16)"
+
+cat > "$work/openssl.cnf" <<CNF
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = $name
+[ext]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+CNF
+
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+    -config "$work/openssl.cnf" -keyout "$work/key.pem" -out "$work/cert.pem" 2>/dev/null
+
+/usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
+    -name "$name" -passout "pass:$pass" -out "$work/oriel.p12"
+
+security import "$work/oriel.p12" -k "$keychain" -P "$pass" -T /usr/bin/codesign >/dev/null
+
+echo "Created identity '$name' in the login keychain."

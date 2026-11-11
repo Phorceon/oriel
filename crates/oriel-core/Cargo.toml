@@ -1,0 +1,10 @@
+[package]
+name = "oriel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oriel's platform-free core: the tab model, the platform contract and the saved state."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/oriel-core", "crates/oriel-mac", "crates/oriel-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+oriel-core = { path = "crates/oriel-core" }
+oriel-mac = { path = "crates/oriel-mac" }
+# Rune is pre-release. Pin a rev of `dev`.
+rune = { git = "https://github.com/anomalyco/rune", rev = "6f8eead9ec334458b3e7451ea44adee7088986ec" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "6f8eead9ec334458b3e7451ea44adee7088986ec" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "6f8eead9ec334458b3e7451ea44adee7088986ec" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

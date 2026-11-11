@@ -1,0 +1,18 @@
+[package]
+name = "oriel-mac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oriel's macOS platform layer: Accessibility window control and NSWorkspace app control."
+
+[dependencies]
+oriel-core.workspace = true
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
+core-foundation-sys = "0.8"
+plist = "1"
+
+[dev-dependencies]

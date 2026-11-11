@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    echo "usage: $0 [--debug] [--install] [--open]" >&2
+    exit 2
+}
+
+debug=0
+install=0
+open=0
+for arg in "$@"; do
+    case "$arg" in
+        --debug) debug=1 ;;
+        --install) install=1 ;;
+        --open) open=1 ;;
+        *) usage ;;
+    esac
+done
+
+# Work from the repo root regardless of the current directory.
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo"
+
+if [ "$debug" -eq 1 ]; then
+    cargo build -p oriel-app
+    bin="target/debug/oriel"
+else
+    cargo build --release -p oriel-app
+    bin="target/release/oriel"
+fi
+
+# Version from the [workspace.package] section of the root Cargo.toml.
+version="$(
+    sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml |
+        sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' |
+        head -n 1
+)"
+if [ -z "$version" ]; then
+    echo "error: could not read version from [workspace.package]" >&2
+    exit 1
+fi
+
+app="dist/Oriel.app"
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+
+cp "$bin" "$app/Contents/MacOS/oriel"
+
+icon_file=""
+if [ -f assets/icon.icns ]; then
+    cp assets/icon.icns "$app/Contents/Resources/icon.icns"
+    icon_file="icon"
+fi
+
+info_plist="$app/Contents/Info.plist"
+{
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+    echo '<plist version="1.0">'
+    echo '<dict>'
+    echo '	<key>CFBundleName</key>'
+    echo '	<string>Oriel</string>'
+    echo '	<key>CFBundleDisplayName</key>'
+    echo '	<string>Oriel</string>'
+    echo '	<key>CFBundleIdentifier</key>'
+    echo '	<string>app.oriel.Oriel</string>'
+    echo '	<key>CFBundleExecutable</key>'
+    echo '	<string>oriel</string>'
+    echo '	<key>CFBundlePackageType</key>'
+    echo '	<string>APPL</string>'
+    echo '	<key>CFBundleShortVersionString</key>'
+    echo "	<string>$version</string>"
+    echo '	<key>CFBundleVersion</key>'
+    echo "	<string>$version</string>"
+    if [ -n "$icon_file" ]; then
+        echo '	<key>CFBundleIconFile</key>'
+        echo '	<string>icon</string>'
+    fi
+    echo '	<key>LSMinimumSystemVersion</key>'
+    echo '	<string>13.0</string>'
+    echo '	<key>NSHighResolutionCapable</key>'
+    echo '	<true/>'
+    echo '	<key>NSPrincipalClass</key>'
+    echo '	<string>NSApplication</string>'
+    echo '	<key>LSApplicationCategoryType</key>'
+    echo '	<string>public.app-category.productivity</string>'
+    echo '</dict>'
+    echo '</plist>'
+} > "$info_plist"
+
+plutil -lint "$info_plist" >/dev/null
+
+# Signing identity: $ORIEL_SIGN, else the local identity from scripts/signing-setup,
+# else ad hoc. The local identity is self-signed, so it is not "valid" for
+# find-identity -v, but codesign accepts it.
+local_identity="Oriel Local Signing"
+if [ -n "${ORIEL_SIGN:-}" ]; then
+    sign_id="$ORIEL_SIGN"
+elif security find-identity -p codesigning 2>/dev/null | grep -qF "\"$local_identity\""; then
+    sign_id="$local_identity"
+else
+    sign_id="-"
+fi
+codesign --force --sign "$sign_id" --identifier app.oriel.Oriel "$app"
+codesign --verify "$app"
+if [ "$sign_id" = "-" ]; then
+    echo "Signed with: ad hoc (no stable identity)"
+else
+    echo "Signed with: $sign_id"
+fi
+
+if [ "$install" -eq 1 ]; then
+    # If Oriel is running, ask it to quit first; ignore any error.
+    osascript -e 'tell application id "app.oriel.Oriel" to quit' >/dev/null 2>&1 || true
+    mkdir -p "$HOME/Applications"
+    rm -rf "$HOME/Applications/Oriel.app"
+    ditto "$app" "$HOME/Applications/Oriel.app"
+fi
+
+if [ "$open" -eq 1 ]; then
+    if [ "$install" -eq 1 ]; then
+        open "$HOME/Applications/Oriel.app"
+    else
+        open "$app"
+    fi
+fi
+
+if [ "$install" -eq 1 ]; then
+    bundle="$HOME/Applications/Oriel.app"
+else
+    bundle="$repo/$app"
+fi
+echo "Bundle: $bundle"
+if [ "$sign_id" = "-" ]; then
+    cat <<NOTE
+
+An ad hoc signed build is treated by macOS as a brand-new app after every rebuild, so
+Accessibility access (System Settings > Privacy & Security > Accessibility) must be
+granted again after each rebuild. Run scripts/signing-setup once to create a stable
+local signing identity, or set ORIEL_SIGN to your own identity.
+NOTE
+fi

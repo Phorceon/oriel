@@ -1,0 +1,36 @@
+[package]
+name = "oriel-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oriel: the Rune tab bar app."
+
+[[bin]]
+name = "oriel"
+path = "src/main.rs"
+
+[features]
+default = ["mac"]
+# The real macOS platform. Build with `--no-default-features` to use `FakePlatform` only.
+mac = ["dep:oriel-mac"]
+
+[dependencies]
+oriel-core.workspace = true
+oriel-mac = { workspace = true, optional = true }
+rune.workspace = true
+
+# Window placement and AppKit interactions beyond Rune's public API (`macwin`).
+# The `raw-window-handle` version is pinned by winit 0.30's `rwh_06`, so the raw
+# handle types inside `WindowHandle::with_raw_handle` are these crate's types.
+[target.'cfg(target_os = "macos")'.dependencies]
+raw-window-handle = "0.6"
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-foundation = { version = "0.3", features = [
+    "NSArray",
+    "NSGeometry",
+    "NSNotification",
+    "NSObject",
+    "NSString",
+] }
