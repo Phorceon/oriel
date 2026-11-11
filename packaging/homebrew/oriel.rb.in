@@ -1,0 +1,24 @@
+cask "oriel" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/Phorceon/oriel/releases/download/v#{version}/Oriel-#{version}.zip"
+  name "Oriel"
+  desc "Tab bar for real desktop app windows"
+  homepage "https://github.com/Phorceon/oriel"
+
+  depends_on arch: :arm64
+  depends_on macos: ">= :@MACOS_SYMBOL@"
+
+  app "Oriel.app"
+
+  zap trash: "~/Library/Application Support/Oriel"
+
+  caveats <<~EOS
+    Oriel is not notarized by Apple. On first open, macOS blocks it.
+    Allow it in System Settings > Privacy & Security ("Open Anyway").
+
+    Oriel needs the Accessibility permission to move other apps' windows.
+    Grant it in System Settings > Privacy & Security > Accessibility.
+  EOS
+end

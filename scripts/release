@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    echo "usage: $0" >&2
+    echo "Builds a signed, path-scrubbed release zip in dist/ and updates Casks/oriel.rb." >&2
+    echo "It does not publish anything: no network, no gh, no git push." >&2
+    exit 2
+}
+[ "$#" -eq 0 ] || usage
+
+fail() { echo "release: error: $*" >&2; exit 1; }
+
+# Work from the repo root regardless of the current directory.
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo"
+
+repo_slug="Phorceon/oriel"
+identity="Oriel Local Signing"
+
+# Version: the single source of truth is [workspace.package] in the root Cargo.toml
+# (scripts/bundle reads the same value for the Info.plist).
+version="$(
+    sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml |
+        sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' |
+        head -n 1
+)"
+[ -n "$version" ] || fail "could not read version from [workspace.package]"
+echo "Version: $version"
+
+# A release needs the stable identity, so the Accessibility grant survives updates.
+if ! security find-identity -p codesigning 2>/dev/null | grep -qF "\"$identity\""; then
+    fail "signing identity \"$identity\" not found. Run scripts/signing-setup first."
+fi
+
+# Scrub build paths. Later --remap-path-prefix flags win, so the specific repo path
+# comes after the general $HOME. The env RUSTFLAGS replaces any config rustflags;
+# .cargo/config.toml here only sets [env], so nothing is lost.
+user="$(id -un)"
+cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+flags="--remap-path-prefix=$HOME=/home"
+flags="$flags --remap-path-prefix=$cargo_home=/cargo"
+flags="$flags --remap-path-prefix=$rustup_home=/rustup"
+flags="$flags --remap-path-prefix=$repo=/oriel"
+export RUSTFLAGS="$flags"
+unset CARGO_ENCODED_RUSTFLAGS
+
+# Rebuild the oriel crates so no object keeps an unscrubbed path from an earlier build.
+cargo clean --release -p oriel-app -p oriel-core -p oriel-mac >/dev/null 2>&1 || true
+
+echo "Building with scrubbed paths..."
+scripts/bundle
+
+app="dist/Oriel.app"
+exe="$app/Contents/MacOS/oriel"
+plist="$app/Contents/Info.plist"
+icns="$app/Contents/Resources/Oriel.icns"
+
+# Privacy check: no home directory and no user name path in the shipped files.
+echo "Checking for leaked paths..."
+bad=0
+for f in "$exe" "$plist" "$icns"; do
+    for needle in "$HOME" "/Users/$user"; do
+        if grep -aqF -- "$needle" "$f"; then
+            echo "release: LEAK: \"$needle\" found in $f" >&2
+            bad=1
+        fi
+    done
+done
+[ "$bad" -eq 0 ] || fail "build paths are not scrubbed; not releasing"
+echo "  clean: no home path and no user-name path in the executable, Info.plist or icon"
+
+# Signature: must be the stable identity, not ad hoc.
+codesign --verify --strict --verbose=2 "$app"
+sig_info="$(codesign -dvv "$app" 2>&1)"
+if echo "$sig_info" | grep -q "Signature=adhoc"; then
+    fail "bundle is ad hoc signed; a release needs \"$identity\""
+fi
+echo "$sig_info" | grep -qF "Authority=$identity" || fail "bundle is not signed by \"$identity\""
+echo "Designated requirement:"
+codesign -d -r- "$app" 2>&1 | sed -n 's/^designated => /  /p'
+
+# Architecture and minimum macOS.
+archs="$(lipo -archs "$exe")"
+[ "$archs" = "arm64" ] || fail "expected an arm64-only binary, found: $archs"
+plist_min="$(plutil -extract LSMinimumSystemVersion raw "$plist")"
+bin_min="$(vtool -show-build "$exe" | awk '$1 == "minos" { print $2; exit }')"
+[ -n "$bin_min" ] || fail "could not read minos from the binary"
+major() { echo "${1%%.*}"; }
+plist_major="$(major "$plist_min")"
+bin_major="$(major "$bin_min")"
+min_major="$plist_major"
+[ "$bin_major" -gt "$min_major" ] && min_major="$bin_major"
+case "$min_major" in
+    11) macos_symbol="big_sur" ;;
+    12) macos_symbol="monterey" ;;
+    13) macos_symbol="ventura" ;;
+    14) macos_symbol="sonoma" ;;
+    15) macos_symbol="sequoia" ;;
+    26) macos_symbol="tahoe" ;;
+    *) fail "no cask symbol known for macOS $min_major; edit scripts/release" ;;
+esac
+echo "Arch: $archs. Minimum macOS: plist $plist_min, binary $bin_min. Cask uses :$macos_symbol (the strictest)."
+if [ "$plist_major" != "$bin_major" ]; then
+    echo "note: Info.plist ($plist_min) and the binary ($bin_min) differ; the cask follows the strictest." >&2
+fi
+
+# Zip.
+zip="dist/Oriel-$version.zip"
+rm -f "$zip"
+ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+
+check="$(mktemp -d)"
+trap 'rm -rf "$check"' EXIT
+ditto -x -k "$zip" "$check"
+codesign --verify --strict --verbose=2 "$check/Oriel.app"
+echo "Zip unpacks to an app with a valid signature."
+
+sha="$(shasum -a 256 "$zip" | awk '{ print $1 }')"
+size="$(stat -f %z "$zip")"
+echo "Zip: $repo/$zip ($size bytes)"
+echo "SHA-256: $sha"
+
+# Cask: Casks/oriel.rb is tracked in this repo (it makes the repo a Homebrew tap).
+# It is generated from the template and replaced in place.
+cask="Casks/oriel.rb"
+mkdir -p Casks
+sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" -e "s/@MACOS_SYMBOL@/$macos_symbol/g" \
+    packaging/homebrew/oriel.rb.in > "$cask"
+if grep -q '@[A-Z_]*@' "$cask"; then
+    fail "unfilled placeholder in the cask"
+fi
+
+echo
+echo "Cask: $repo/$cask"
+cat <<PUBLISH
+
+To publish (run these yourself; this script does not):
+
+  git add Casks/oriel.rb && git commit -m "oriel $version" && git push
+  gh release create v$version "$repo/$zip" \\
+      --repo $repo_slug --title "Oriel $version" --notes "Oriel $version"
+PUBLISH

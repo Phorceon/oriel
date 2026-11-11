@@ -10,6 +10,35 @@ The idea is a clean, single-focus workspace. You keep the windows of the apps yo
 are using, and inactive apps are hidden so Mission Control stays tidy. The bar is a transient panel: Mission Control and App Exposé hide it
 and show only the glued app window.
 
+## Install
+
+Apple Silicon, macOS 13 or later. This repository is also the Homebrew tap. Because the
+repository is named `oriel` and not `homebrew-oriel`, the tap needs its URL:
+
+```
+brew tap phorceon/oriel https://github.com/Phorceon/oriel
+brew install --cask oriel
+```
+
+On first run:
+
+1. Oriel is not notarized by Apple, so macOS blocks it. Open System Settings > Privacy &
+   Security and click "Open Anyway".
+2. Grant Accessibility in System Settings > Privacy & Security > Accessibility, so Oriel can
+   move other apps' windows.
+
+To uninstall:
+
+```
+brew uninstall --cask oriel
+```
+
+To also delete the saved tabs, use `--zap`:
+
+```
+brew uninstall --cask --zap oriel
+```
+
 ## How it behaves
 
 - One tab per window. A tab represents a real window of an installed app.
@@ -56,6 +85,10 @@ or build a proper `.app` bundle:
 scripts/bundle --install --open
 ```
 
+Caveat: `.cargo/config.toml` pins `SDKROOT` to one specific Command Line Tools SDK path. This
+is a workaround for the author's machine. On another Mac, remove or adjust that line if the
+build cannot find the SDK.
+
 ## Signing
 
 Run `scripts/signing-setup` once. It creates a self-signed code signing identity named
@@ -73,6 +106,15 @@ To remove the identity:
 ```
 security delete-identity -c "Oriel Local Signing" ~/Library/Keychains/login.keychain-db
 ```
+
+## Releasing
+
+`scripts/release` builds a path-scrubbed, signed bundle and zips it as `dist/Oriel-<version>.zip`.
+It then rewrites the tracked file `Casks/oriel.rb` in place from `packaging/homebrew/oriel.rb.in`.
+The version comes from `[workspace.package]` in the root `Cargo.toml`. It needs the
+`Oriel Local Signing` identity. At the end it prints the commands to publish: commit and push
+`Casks/oriel.rb`, then `gh release create v<version>` on `Phorceon/oriel` with the zip. The
+script never publishes by itself.
 
 ## Workspace layout
 
