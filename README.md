@@ -86,6 +86,10 @@ The repository is a Cargo workspace with three crates:
 
 The UI is built with Rune (<https://github.com/anomalyco/rune>).
 
+## Icon
+
+The app icon master is `assets/icon/oriel.svg`; `scripts/make-icon [svg]` rebuilds `assets/icon/Oriel.icns` from it (other concepts are in `assets/icon/concepts/`).
+
 ## Known limits
 
 - macOS cannot truly embed another app's window. Oriel drags the bar itself and moves the

@@ -47,11 +47,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$bin" "$app/Contents/MacOS/oriel"
 
-icon_file=""
-if [ -f assets/icon.icns ]; then
-    cp assets/icon.icns "$app/Contents/Resources/icon.icns"
-    icon_file="icon"
-fi
+# The icon must be in place before code signing below.
+cp assets/icon/Oriel.icns "$app/Contents/Resources/Oriel.icns"
 
 info_plist="$app/Contents/Info.plist"
 {
@@ -73,10 +70,8 @@ info_plist="$app/Contents/Info.plist"
     echo "	<string>$version</string>"
     echo '	<key>CFBundleVersion</key>'
     echo "	<string>$version</string>"
-    if [ -n "$icon_file" ]; then
-        echo '	<key>CFBundleIconFile</key>'
-        echo '	<string>icon</string>'
-    fi
+    echo '	<key>CFBundleIconFile</key>'
+    echo '	<string>Oriel</string>'
     echo '	<key>LSMinimumSystemVersion</key>'
     echo '	<string>13.0</string>'
     echo '	<key>NSHighResolutionCapable</key>'
