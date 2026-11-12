@@ -51,7 +51,8 @@ brew uninstall --cask --zap oriel
 - The "+" button adds an installed application to the bar.
 - Closing a tab closes that app's window; when Oriel closes its last window, the app
   quits.
-- Windows of the same app that are not active are minimized.
+- Windows of the same app that are not active are tucked behind the active one, exactly
+  under it — never minimized to the Dock.
 - Mouse first: click a tab (it switches on the press), drag a tab to reorder it, middle-click
   to close it, drag empty bar space to move the window, double-click it to zoom.
 - Split view: right-click a tab and choose "Split with Current Tab" to show it side by side
@@ -152,8 +153,7 @@ The app icon master is `assets/icon/oriel.svg`; `scripts/make-icon [svg]` rebuil
   app's real window in the same step (a thread of its own, one AX call per frame). Measured
   on a 60 Hz display, the window stays on the bar in every sampled frame of a bar drag; when
   the user drags the app's window instead, the bar is sometimes one frame (about 16 ms)
-  behind. Switching between two windows of the same app plays the system's un-minimize
-  animation (about 0.35 s to place, 0.55 s to settle).
+  behind.
 
 ## Measuring
 

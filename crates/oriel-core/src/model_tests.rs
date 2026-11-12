@@ -143,10 +143,6 @@ fn present(b: &str, w: u32) -> Effect {
     cmd(Command::Present { bundle_id: b.into(), window: WindowId(w), frame: content() })
 }
 
-fn minimize(w: u32) -> Effect {
-    cmd(Command::Minimize { window: WindowId(w) })
-}
-
 fn close_window(w: u32) -> Effect {
     cmd(Command::CloseWindow { window: WindowId(w) })
 }
@@ -423,7 +419,7 @@ fn add_app_while_untrusted_only_watches_and_saves() {
 }
 
 #[test]
-fn activate_window_tab_hides_others_minimizes_siblings_in_order() {
+fn activate_window_tab_hides_others_tucks_siblings_in_order() {
     let mut m = model_with(&["a", "b"]);
     running(&mut m, "a", vec![win(1, "a1"), win(2, "a2")]);
     running(&mut m, "b", vec![win(3, "b3")]);
@@ -435,7 +431,7 @@ fn activate_window_tab_hides_others_minimizes_siblings_in_order() {
     let effects = activate_window(&mut m, 2);
     assert_eq!(
         effects,
-        vec![present("a", 2), raise(), minimize(1), hide("b"), save()]
+        vec![present("a", 2), raise(), set_frame(1, content()), hide("b"), save()]
     );
 }
 
@@ -664,7 +660,7 @@ fn zoom_of_a_refusing_window_asks_for_the_full_content_again() {
 }
 
 #[test]
-fn present_shows_the_new_window_before_it_minimizes_or_hides_anything() {
+fn present_shows_the_new_window_before_it_tucks_or_hides_anything() {
     let mut m = model_with(&["a", "b"]);
     running(&mut m, "a", vec![win(1, "a1"), win(2, "a2")]);
     running(&mut m, "b", vec![win(3, "b3")]);
@@ -710,7 +706,7 @@ fn app_running_turns_placeholder_into_first_window_and_keeps_its_id() {
     assert_ne!(window_tab(&m, 2), placeholder);
     assert_eq!(bundles(&m), vec!["a", "a", "b"]);
     assert!(m.is_running("a"));
-    assert_eq!(effects, vec![present("a", 1), raise(), minimize(2)]);
+    assert_eq!(effects, vec![present("a", 1), raise(), set_frame(2, content())]);
 }
 
 #[test]
@@ -721,7 +717,7 @@ fn app_running_puts_extra_windows_after_the_last_tab_in_the_given_order() {
     let effects = running(&mut m, "a", vec![win(1, "a1"), win(4, "a4"), win(2, "a2")]);
     assert_eq!(bundles(&m), vec!["a", "a", "a", "b"]);
     assert_eq!(windows(&m), vec![Some(1), Some(4), Some(2), Some(3)]);
-    assert_eq!(effects, vec![present("a", 1), raise(), minimize(4), minimize(2), hide("b")]);
+    assert_eq!(effects, vec![present("a", 1), raise(), set_frame(4, content()), set_frame(2, content()), hide("b")]);
 }
 
 #[test]
@@ -733,7 +729,7 @@ fn app_running_keeps_tab_ids_and_updates_titles() {
     assert_eq!(window_tab(&m, 1), id);
     assert_eq!(m.tab(id).expect("tab").label(), "new title");
     assert_eq!(windows(&m), vec![Some(1), Some(2)]);
-    assert_eq!(effects, vec![present("a", 1), raise(), minimize(2)]);
+    assert_eq!(effects, vec![present("a", 1), raise(), set_frame(2, content())]);
 }
 
 #[test]
@@ -896,7 +892,7 @@ fn window_opened_appends_after_the_last_tab_and_activates_when_the_app_is_active
     assert_eq!(bundles(&m), vec!["a", "a", "b"]);
     assert_eq!(windows(&m), vec![Some(1), Some(2), Some(3)]);
     assert_eq!(m.active, Some(window_tab(&m, 2)));
-    assert_eq!(effects, vec![present("a", 2), raise(), minimize(1), hide("b")]);
+    assert_eq!(effects, vec![present("a", 2), raise(), set_frame(1, content()), hide("b")]);
 }
 
 #[test]
@@ -2108,7 +2104,7 @@ fn split_presents_both_windows_the_asked_one_last_and_shows_the_divider() {
             present_in("a", 1, l),
             present_in("b", 3, r),
             raise(),
-            minimize(2),
+            set_frame(2, l),
             hide("c"),
             save(),
             divider_effect(Some(d)),
@@ -2122,7 +2118,7 @@ fn split_presents_both_windows_the_asked_one_last_and_shows_the_divider() {
 }
 
 #[test]
-fn split_of_two_windows_of_one_app_minimizes_nothing_of_the_pair() {
+fn split_of_two_windows_of_one_app_tucks_nothing_of_the_pair() {
     let mut m = split_model();
     let (l, d, r) = halves();
     let effects = split_tab(&mut m, 2);
@@ -2141,7 +2137,7 @@ fn split_of_two_windows_of_one_app_minimizes_nothing_of_the_pair() {
 }
 
 #[test]
-fn split_minimizes_the_other_windows_of_both_apps() {
+fn split_tucks_the_other_windows_of_both_apps() {
     let mut m = split_model();
     running(&mut m, "b", vec![win(3, "b3"), win(5, "b5")]);
     let (l, d, r) = halves();
@@ -2152,8 +2148,8 @@ fn split_minimizes_the_other_windows_of_both_apps() {
             present_in("a", 1, l),
             present_in("b", 3, r),
             raise(),
-            minimize(2),
-            minimize(5),
+            set_frame(2, l),
+            set_frame(5, r),
             hide("c"),
             save(),
             divider_effect(Some(d)),
@@ -2248,7 +2244,10 @@ fn split_ratio_moves_both_windows_and_the_divider() {
     let mut m = split_a1_b3();
     let (l, d, r) = split_rects(&content(), 0.25);
     let effects = act(&mut m, Action::SplitRatio(0.25));
-    assert_eq!(effects, vec![set_frame(1, l), set_frame(3, r), divider_effect(Some(d))]);
+    assert_eq!(
+        effects,
+        vec![set_frame(1, l), set_frame(2, l), set_frame(3, r), divider_effect(Some(d))]
+    );
     assert_eq!(m.split.unwrap().ratio, 0.25);
     assert_eq!(d.x, l.w);
 }
@@ -2259,10 +2258,13 @@ fn split_ratio_is_clamped_to_the_minimum_pane() {
     let effects = act(&mut m, Action::SplitRatio(0.0));
     let (l, d, r) = split_rects(&content(), 0.0);
     assert_eq!(l.w, MIN_PANE);
-    assert_eq!(effects, vec![set_frame(1, l), set_frame(3, r), divider_effect(Some(d))]);
+    assert_eq!(
+        effects,
+        vec![set_frame(1, l), set_frame(2, l), set_frame(3, r), divider_effect(Some(d))]
+    );
     // Asking for the same pixels again changes nothing.
     assert_eq!(act(&mut m, Action::SplitRatio(-3.0)), none());
-    assert_eq!(act(&mut m, Action::SplitRatio(f64::NAN)).len(), 3, "not a number gives one half");
+    assert_eq!(act(&mut m, Action::SplitRatio(f64::NAN)).len(), 4, "not a number gives one half");
 }
 
 #[test]
@@ -2302,7 +2304,7 @@ fn a_third_tab_shows_alone_and_the_pair_stays_joined() {
             present_in("b", 3, r),
             present_in("a", 1, l),
             raise(),
-            minimize(2),
+            set_frame(2, l),
             hide("c"),
             save(),
             divider_effect(Some(d)),
@@ -2369,7 +2371,7 @@ fn bar_moved_moves_both_windows_and_the_divider() {
     let frame = m.frame.unwrap();
     assert_eq!((frame.x, frame.y, frame.w, frame.h), (100.0, 125.0, 1440.0, 875.0));
     let (l, d, r) = split_rects(&frame.content(), 0.5);
-    assert_eq!(effects, vec![set_frame(1, l), set_frame(3, r), save(), divider_effect(Some(d))]);
+    assert_eq!(effects, vec![set_frame(1, l), set_frame(2, l), set_frame(3, r), save(), divider_effect(Some(d))]);
 }
 
 const BAR_H: f64 = crate::types::BAR_HEIGHT;
@@ -2380,7 +2382,7 @@ fn bar_resized_in_width_asks_both_windows_for_their_new_panes() {
     let effects = act(&mut m, Action::BarMoved(Rect::new(0.0, 25.0, 1000.0, BAR_H)));
     let frame = m.frame.unwrap();
     let (l, d, r) = split_rects(&frame.content(), 0.5);
-    assert_eq!(effects, vec![set_frame(1, l), set_frame(3, r), save(), divider_effect(Some(d))]);
+    assert_eq!(effects, vec![set_frame(1, l), set_frame(2, l), set_frame(3, r), save(), divider_effect(Some(d))]);
     assert_eq!(l.w + SPLIT_GAP + r.w, 1000.0);
 }
 
@@ -2392,7 +2394,7 @@ fn zoom_sends_both_windows_their_panes() {
     let (l, d, r) = split_rects(&target.content(), 0.5);
     assert_eq!(
         effects,
-        vec![move_bar(target.bar()), set_frame(1, l), set_frame(3, r), save(), divider_effect(Some(d))]
+        vec![move_bar(target.bar()), set_frame(1, l), set_frame(2, l), set_frame(3, r), save(), divider_effect(Some(d))]
     );
 }
 
@@ -2417,7 +2419,10 @@ fn a_refusal_in_a_pane_puts_the_window_at_its_fit_in_that_pane_once() {
     // The left window refuses on its own, with its own correction mark.
     let (l, _, _) = halves();
     let actual = Rect::new(l.x, l.y, 300.0, 300.0);
-    assert_eq!(ev(&mut m, reported(1, actual, false)), vec![set_frame(1, l.fit(300.0, 300.0))]);
+    assert_eq!(
+        ev(&mut m, reported(1, actual, false)),
+        vec![set_frame(1, l.fit(300.0, 300.0)), set_frame(2, l.fit(300.0, 300.0))]
+    );
     assert_eq!(m.frame, Some(screen()), "a refusal never changes the frame");
 }
 
@@ -2431,7 +2436,8 @@ fn a_fixed_size_window_in_a_pane_follows_the_bar_at_its_fit() {
     let frame = m.frame.unwrap();
     let (l, _, r) = split_rects(&frame.content(), 0.5);
     assert_eq!(effects[0], set_frame(1, l));
-    assert_eq!(effects[1], set_frame(3, r.fit(230.0, 408.0)));
+    assert_eq!(effects[1], set_frame(2, l));
+    assert_eq!(effects[2], set_frame(3, r.fit(230.0, 408.0)));
 }
 
 #[test]
@@ -2442,8 +2448,11 @@ fn a_user_move_of_the_left_pane_moves_the_whole_frame_and_the_other_window() {
     let effects = ev(&mut m, reported(1, held, true));
     let frame = m.frame.unwrap();
     assert_eq!((frame.x, frame.y, frame.w, frame.h), (30.0, 45.0, 1440.0, 875.0));
-    let (_, d, r) = split_rects(&frame.content(), 0.5);
-    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(3, r), save(), divider_effect(Some(d))]);
+    let (l, d, r) = split_rects(&frame.content(), 0.5);
+    assert_eq!(
+        effects,
+        vec![move_bar(frame.bar()), set_frame(2, l), set_frame(3, r), save(), divider_effect(Some(d))]
+    );
     assert!(!effects.contains(&set_frame(1, held)), "never a SetFrame for the window the user holds");
     assert_eq!(m.split.unwrap().ratio, 0.5);
 }
@@ -2457,7 +2466,7 @@ fn a_user_move_of_the_right_pane_moves_the_frame_and_the_left_window() {
     let frame = m.frame.unwrap();
     assert_eq!(frame.x, -10.0);
     let (l, d, _) = split_rects(&frame.content(), 0.5);
-    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(1, l), save(), divider_effect(Some(d))]);
+    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(1, l), set_frame(2, l), save(), divider_effect(Some(d))]);
 }
 
 #[test]
@@ -2474,7 +2483,7 @@ fn a_user_resize_of_the_left_pane_sets_the_left_edge_and_the_divider() {
     assert!((m.split.unwrap().ratio - ratio).abs() < 1e-9);
     let (nl, d, nr) = split_rects(&frame.content(), m.split.unwrap().ratio);
     assert_eq!(d.x, held.x + held.w, "the divider sits at the pane's right edge");
-    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(3, nr), save(), divider_effect(Some(d))]);
+    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(2, nl), set_frame(3, nr), save(), divider_effect(Some(d))]);
     assert!(nl.close_to(&held));
 }
 
@@ -2487,11 +2496,11 @@ fn a_user_resize_of_the_left_pane_from_its_left_edge_moves_the_frame_left_edge()
     let frame = m.frame.unwrap();
     assert_eq!((frame.x, frame.w), (60.0, 1380.0), "left edge moves, the right edge stays");
     assert_eq!(frame.x + frame.w, 1440.0);
-    let (_, d, nr) = split_rects(&frame.content(), m.split.unwrap().ratio);
+    let (nl, d, nr) = split_rects(&frame.content(), m.split.unwrap().ratio);
     assert_eq!(d.x, held.x + held.w);
     assert_eq!(d, halves().1, "the divider did not move, so no divider effect");
     assert!(nr.close_to(&r), "the right pane did not move");
-    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(3, nr), save()]);
+    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(2, nl), set_frame(3, nr), save()]);
 }
 
 #[test]
@@ -2507,7 +2516,7 @@ fn a_user_resize_of_the_right_pane_sets_the_right_edge_and_the_divider() {
     assert_eq!(d.x, held.x - SPLIT_GAP, "the divider sits just left of the pane");
     assert!(d.x < d0.x);
     assert!(nr.close_to(&held));
-    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(1, l), save(), divider_effect(Some(d))]);
+    assert_eq!(effects, vec![move_bar(frame.bar()), set_frame(1, l), set_frame(2, l), save(), divider_effect(Some(d))]);
 }
 
 #[test]
@@ -2533,7 +2542,7 @@ fn a_clamped_user_resize_corrects_the_held_window_once_and_never_fights_again() 
     assert_eq!(pane.w, MIN_PANE);
     assert_eq!(
         effects,
-        vec![move_bar(frame.bar()), set_frame(1, pane), set_frame(3, right), save(), divider_effect(Some(d))]
+        vec![move_bar(frame.bar()), set_frame(1, pane), set_frame(2, pane), set_frame(3, right), save(), divider_effect(Some(d))]
     );
     // The user keeps pulling: no second SetFrame for the held window.
     let held = Rect::new(l.x, l.y, 90.0, l.h);
@@ -2574,7 +2583,7 @@ fn closing_the_active_member_with_x_shows_the_other_one_alone() {
             unwatch("b"),
             present("a", 1),
             raise(),
-            minimize(2),
+            set_frame(2, content()),
             hide("c"),
             save(),
             divider_effect(None),
@@ -2607,7 +2616,7 @@ fn the_last_window_of_a_member_closed_in_the_app_leaves_an_expiring_tab_and_the_
     let a1 = tab_of(&m, 1);
     assert_eq!(
         effects,
-        vec![present("a", 1), raise(), minimize(2), hide("b"), hide("c"), expire(b3), save(), divider_effect(None)]
+        vec![present("a", 1), raise(), set_frame(2, content()), hide("b"), hide("c"), expire(b3), save(), divider_effect(None)]
     );
     assert_eq!(m.split, None);
     assert_eq!(m.active, Some(a1));
@@ -2622,7 +2631,7 @@ fn a_member_app_that_stops_leaves_the_other_member_alone() {
     let effects = stopped(&mut m, "b");
     assert_eq!(
         effects,
-        vec![present("a", 1), raise(), minimize(2), hide("c"), expire(b3), save(), divider_effect(None)]
+        vec![present("a", 1), raise(), set_frame(2, content()), hide("c"), expire(b3), save(), divider_effect(None)]
     );
     assert_eq!(m.split, None);
     assert_eq!(m.active, Some(tab_of(&m, 1)));

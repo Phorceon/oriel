@@ -32,10 +32,12 @@
 //!
 //!   No `Minimize`, no `Present`, no `RaiseBar`.
 //! - Window tab, in this order (the new window first, so the content area is never empty: the
-//!   platform holds the hides and minimizes until the presented window is on screen):
+//!   platform holds the hides until the presented window is on screen):
 //!   1. `Present { bundle_id, window, frame: content }`.
 //!   2. `Effect::RaiseBar`.
-//!   3. `Minimize` for every other window tab of the same app, in tab order.
+//!   3. `SetFrame` of the content for every other window tab of the same app, in tab order:
+//!      they are *tucked behind* the presented window (see "Where the window is"). Nothing
+//!      is ever minimized to the Dock.
 //!   4. `HideApp` for every *other* running app that has a tab, in tab order, once per app.
 //!
 //!   Every `present` first forgets the *shown* rects (see "Where the window is"). A window tab
@@ -44,8 +46,8 @@
 //!   1. `Present` for the other member, with its pane as `frame`.
 //!   2. `Present` for `tab`, with its pane as `frame` (so the one asked for ends in front).
 //!   3. `Effect::RaiseBar`.
-//!   4. `Minimize` for every other window tab of the two apps that is not one of the two
-//!      presented windows, in tab order.
+//!   4. `SetFrame` of that app's pane for every other window tab of the two apps that is not
+//!      one of the two presented windows, in tab order (tucked behind the pair).
 //!   5. `HideApp` for every running app with a tab except the one or two apps of the pair, in
 //!      tab order, once per app.
 //!
@@ -65,6 +67,14 @@
 //! centered in `content` (`x = content.x + (content.w - w) / 2`); when `w > content.w` it is
 //! left-aligned (`x = content.x`). A window that cannot take `content` is shown at its fit.
 //! The model remembers at most one *correction* per window, per `present` and per `BarMoved`.
+//!
+//! **Tucked behind.** The app of a shown window can have other window tabs. None of them is
+//! ever minimized: every time the model places a shown window (a `present` or a pair,
+//! `BarMoved`, `Zoom`, `SplitRatio`, a user move or resize, or the correction of a refusal)
+//! it also sends a `SetFrame` with the same target for every other window tab of that app,
+//! right after the shown window's own. They sit stacked exactly behind the shown window,
+//! invisible until their tab is presented; the platform applies a frame to a minimized
+//! window too, so one the user minimized shows in place when it comes back.
 //!
 //! ## Actions (from the UI)
 //!
@@ -97,12 +107,14 @@
 //!   pane for a refusing window (`shown` is not `close_to` the old pane) when the bar only
 //!   moved (the pane size is unchanged), so a fixed-size window follows the bar without a
 //!   refused request on every drag step; if the pane size changed, the model asks for the full
-//!   pane again (the window may take it now); then `Save`. Never emit `MoveBar` here.
+//!   pane again (the window may take it now); then `Save`. The app's other window tabs follow
+//!   at the same target, tucked behind. Never emit `MoveBar` here.
 //! - `Zoom(frame)`: the user asked for this whole Oriel frame (a double click on the bar's empty
 //!   space zooms between the visible screen and the frame before). `frame` is `None`, or the new
 //!   frame is `close_to` it: nothing. Else `frame = new`, emit `MoveBar(frame.bar())`; for every
 //!   shown window emit `SetFrame { window, frame: pane }` (`shown = pane`, correction
-//!   forgotten; a refusing window reports again and gets its fit); then `Save`.
+//!   forgotten; a refusing window reports again and gets its fit); the app's other window
+//!   tabs follow at the same target, tucked behind; then `Save`.
 //! - `RequestTrust`: emit `RequestTrust`.
 //! - `OpenPicker`: emit `ScanApps`.
 //! - `Split(tab)`, `Unsplit`, `SplitRatio(ratio)`: see "Split view".
@@ -161,7 +173,7 @@
 //! - `WindowFocused { bundle_id, window }`: no tab for this window: nothing. It is the
 //!   active tab: emit only `Effect::RaiseBar`. It is a member of a *shown* split (the user
 //!   clicked into the other pane): make it active, emit `RaiseBar` then `Save`; no `Present`,
-//!   no hide, no minimize (the windows are in place). Else make it active, `present` it (a
+//!   no hide, no tuck (the windows are in place). Else make it active, `present` it (a
 //!   member of a split that is not shown brings the split back), then `Save`.
 //! - `WindowFrame { window, frame: a, by_user }`: first forget the "closing by Oriel" mark of
 //!   that window (always, even when nothing else happens). Then, when it is not a shown window
@@ -170,16 +182,18 @@
 //!   - `by_user: false` (a refusal: the window is at `a`, not at what the model asked): `frame`
 //!     does not change. If `a` is `close_to` `content`: `shown = a`, nothing else. Else
 //!     compute `fit` from `content` and the size of `a`. If a correction was already sent to
-//!     this window since the last `present`/`BarMoved`, or `a` is `close_to` `fit`: `shown = a`, nothing
-//!     else (this stops a ping-pong when the OS clamps a position). Else `shown = fit`, mark
-//!     the correction as sent, and emit `SetFrame { window, frame: fit }`. Never `MoveBar`, never
-//!     `Save`.
+//!     this window since the last `present`/`BarMoved`, or `a` is `close_to` `fit`: `shown = a` and
+//!     the app's other window tabs are tucked behind at `a` (this stops a ping-pong when the OS
+//!     clamps a position). Else `shown = fit`, mark the correction as sent, emit
+//!     `SetFrame { window, frame: fit }` and tuck the app's other window tabs behind. Never
+//!     `MoveBar`, never `Save`.
 //!   - `by_user: true` (a move or resize by hand) with `a` `close_to` the shown rect (or, with
 //!     no shown rect, `close_to` `content`): nothing. Else, when the size of `a` is `close_to`
 //!     the size of the shown rect, it is a *move*: translate `frame` by `a - shown` (the bar
 //!     follows, the size stays), `shown = a`, correction forgotten. Else it is a *resize*:
 //!     `frame = Rect::from_content(&a)`, `shown = a`, correction forgotten. Both emit
-//!     `MoveBar(frame.bar())`, then `Save`. Never emit `SetFrame` here.
+//!     `MoveBar(frame.bar())`, then `Save`. The moved window itself is never sent a
+//!     `SetFrame`; its app's other window tabs are tucked behind, to the new `content`.
 //!
 //!   A normal window has `shown = content`, so for it a move gives the same `frame` as
 //!   `from_content(a)`. For a pane of a shown split, `by_user: true` is ruled by "Split view".
@@ -650,6 +664,7 @@ impl Model {
     /// of its shown size in the new pane. Else it gets the full pane (it may take it now).
     fn retarget(&mut self, old: &[(WindowId, Rect)], new: &[(WindowId, Rect)], out: &mut Vec<Effect>) {
         let mut shown = Vec::new();
+        let shown_ids: Vec<WindowId> = new.iter().map(|(w, _)| *w).collect();
         for (index, &(window, pane)) in new.iter().enumerate() {
             let old_pane = old.get(index).map(|o| o.1).unwrap_or(pane);
             let target = match self.shown_of(window) {
@@ -659,6 +674,7 @@ impl Model {
             shown.push((window, target));
             self.inner.corrected.remove(&window);
             out.push(Effect::Platform(Command::SetFrame { window, frame: target }));
+            self.tuck_siblings(window, target, &shown_ids, out);
         }
         if !shown.is_empty() {
             self.inner.shown = shown;
@@ -740,14 +756,7 @@ impl Model {
             frame: frame.content(),
         }));
         out.push(Effect::RaiseBar);
-        for other in &self.tabs {
-            if other.id == id || other.app.bundle_id != bundle_id {
-                continue;
-            }
-            if let Some(sibling) = &other.window {
-                out.push(Effect::Platform(Command::Minimize { window: sibling.id }));
-            }
-        }
+        self.tuck_siblings(window, frame.content(), &[window], out);
         self.hide_others(&[bundle_id], out);
         self.inner.shown = vec![(window, frame.content())];
     }
@@ -771,6 +780,7 @@ impl Model {
         }));
         out.push(Effect::Platform(Command::Present { bundle_id: bundle_id.clone(), window, frame: pane(id) }));
         out.push(Effect::RaiseBar);
+        let pane_of_bundle = |bundle: &str| if bundle == bundle_id { pane(id) } else { pane(other) };
         for tab in &self.tabs {
             if tab.id == id || tab.id == other {
                 continue;
@@ -778,7 +788,10 @@ impl Model {
             if let Some(sibling) = &tab.window
                 && (tab.app.bundle_id == bundle_id || tab.app.bundle_id == other_bundle)
             {
-                out.push(Effect::Platform(Command::Minimize { window: sibling.id }));
+                out.push(Effect::Platform(Command::SetFrame {
+                    window: sibling.id,
+                    frame: pane_of_bundle(&tab.app.bundle_id),
+                }));
             }
         }
         self.hide_others(&[&bundle_id, &other_bundle], out);
@@ -795,6 +808,25 @@ impl Model {
             if !keep.contains(&other_app) && self.is_running(other_app) && hidden.insert(other_app) {
                 out.push(Effect::Platform(Command::HideApp { bundle_id: other_app.to_string() }));
             }
+        }
+    }
+
+    /// `SetFrame` to `target` for every window tab of the app of `of` whose window is not one
+    /// of `skip`: they stay stacked behind the shown window, exactly under it, instead of
+    /// being minimized to the Dock. The platform applies a frame to a minimized window too, so
+    /// a window the user minimized keeps the tucked frame and shows in place when it comes
+    /// back.
+    fn tuck_siblings(&self, of: WindowId, target: Rect, skip: &[WindowId], out: &mut Vec<Effect>) {
+        let bundle_id = match self.tabs.iter().find(|t| t.window.as_ref().is_some_and(|w| w.id == of)) {
+            Some(tab) => tab.app.bundle_id.as_str(),
+            None => return,
+        };
+        for other in &self.tabs {
+            let Some(sibling) = &other.window else { continue };
+            if other.app.bundle_id != bundle_id || skip.contains(&sibling.id) {
+                continue;
+            }
+            out.push(Effect::Platform(Command::SetFrame { window: sibling.id, frame: target }));
         }
     }
 
@@ -983,9 +1015,11 @@ impl Model {
         self.frame = Some(frame);
         out.push(Effect::MoveBar(frame.bar()));
         let panes = self.panes_at(&frame);
+        let pane_ids: Vec<WindowId> = panes.iter().map(|(w, _)| *w).collect();
         for &(window, pane) in &panes {
             self.inner.corrected.remove(&window);
             out.push(Effect::Platform(Command::SetFrame { window, frame: pane }));
+            self.tuck_siblings(window, pane, &pane_ids, out);
         }
         if !panes.is_empty() {
             self.inner.shown = panes;
@@ -1311,6 +1345,7 @@ impl Model {
         self.set_shown(window, a);
         self.inner.corrected.remove(&window);
         out.push(Effect::MoveBar(new_frame.bar()));
+        self.tuck_siblings(window, new_frame.content(), &[window], out);
         out.push(Effect::Save);
     }
 
@@ -1354,6 +1389,7 @@ impl Model {
         }
         self.set_shown(window, a);
         let new = self.panes_at(&new_frame);
+        let shown_ids: Vec<WindowId> = new.iter().map(|(w, _)| *w).collect();
         out.push(Effect::MoveBar(new_frame.bar()));
         for (index, &(w, pane)) in new.iter().enumerate() {
             if w == window {
@@ -1363,6 +1399,7 @@ impl Model {
                     self.set_shown(w, pane);
                     out.push(Effect::Platform(Command::SetFrame { window: w, frame: pane }));
                 }
+                self.tuck_siblings(w, pane, &shown_ids, out);
                 continue;
             }
             let old_pane = old.get(index).map(|o| o.1).unwrap_or(pane);
@@ -1373,6 +1410,7 @@ impl Model {
             self.set_shown(w, target);
             self.inner.corrected.remove(&w);
             out.push(Effect::Platform(Command::SetFrame { window: w, frame: target }));
+            self.tuck_siblings(w, target, &shown_ids, out);
         }
         out.push(Effect::Save);
     }
@@ -1386,11 +1424,13 @@ impl Model {
         let target = fit(&content, a.w, a.h);
         if self.inner.corrected.contains(&window) || a.close_to(&target) {
             self.set_shown(window, a);
+            self.tuck_siblings(window, a, &[window], out);
             return;
         }
         self.set_shown(window, target);
         self.inner.corrected.insert(window);
         out.push(Effect::Platform(Command::SetFrame { window, frame: target }));
+        self.tuck_siblings(window, target, &[window], out);
     }
 }
 
